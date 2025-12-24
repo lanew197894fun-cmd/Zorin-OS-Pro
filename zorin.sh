@@ -65,14 +65,14 @@ function fail() {
 no_confirm=""
 extra="false"
 while getopts "678XU" opt; do
-  case $opt in
-    6) version="16" ;;
-    7) version="17" ;;
-    8) version="18" ;;
-    X) extra="true" ;;
-    U) no_confirm="-y" ;;
-    *) fail ;;
-  esac
+    case $opt in
+        6) version="16" ;;
+        7) version="17" ;;
+        8) version="18" ;;
+        X) extra="true" ;;
+        U) no_confirm="-y" ;;
+        *) fail ;;
+    esac
 done
 
 # Automatic version detection if no flag provided
