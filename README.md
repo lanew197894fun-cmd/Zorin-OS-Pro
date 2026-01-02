@@ -6,7 +6,16 @@
 
 ### PLEASE NOTE: You will not receive support from <https://zorin.com/> if you don't like that you can buy a copy
 
-You should have access to all Zorin OS Pro features.
+
+## Purpose statement
+
+ZorinOS is based on Ubuntu. \
+I believe charging for themes and bundled software in a Linux distro is wrong unless that distro is built completely from scratch. \
+I am of the opinion ZorinOS should charge for support rather than charging for themes and bundled free software. \
+$48USD (ZorinOS Pro price as of writing) is also too expensive for the services they provide. \
+**THIS IS NOT PIRACY!** \
+I am not modifying/stealing any of their code or providing any of their IP. \
+See [raw/NOTICE.txt](</raw/NOTICE.txt>) for more info.
 
 ## Stargazers over time
 
