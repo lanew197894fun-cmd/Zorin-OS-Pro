@@ -17,6 +17,8 @@ jobs:
           script: |
             const issue = context.payload.issue;
             const body = issue.body || "";
+            const rawTitle = issue.title || "";
+            const title = rawTitle.trim();
             const owner = context.repo.owner;
             const repo  = context.repo.repo;
 
@@ -95,6 +97,7 @@ jobs:
 
             // ---- evaluate current answers/state ----
             const templateOK = usedTemplateByHeuristics(body);
+            const missingTitle = title.replace(/^\[bug\]\s*/i, "").trim().length === 0;
             const current = await labelsNow();
 
             // Guard: when assigned to NanashiTheNameless, labels/state are manual-only
@@ -107,13 +110,13 @@ jobs:
 
             // Desired labels from rules
             const desired = new Set();
-            if (!templateOK) desired.add("invalid");
+            if (!templateOK || missingTitle) desired.add("invalid");
             if (versionLower === "beta release") desired.add("beta version");
             if (versionLower === "other / unsure") desired.add("version unclear");
             if (googledLower === "no") desired.add("didnt search errors");
 
             // Add 'bug' when — and only when — there are no issues flagged
-            if (templateOK && desired.size === 0) {
+            if (templateOK && !missingTitle && desired.size === 0) {
               desired.add("bug");
             }
 
@@ -130,7 +133,7 @@ jobs:
             }
 
             // Close invalid as "not planned" (idempotent). Skip if assigned to NanashiTheNameless.
-            if (!templateOK && mayMutateLabelsOrState) {
+            if ((!templateOK || missingTitle) && mayMutateLabelsOrState) {
               await github.rest.issues.update({
                 owner, repo, issue_number: issue.number,
                 state: "closed",
@@ -141,17 +144,28 @@ jobs:
             // ---- build ONE comment block with dividers between sections ----
             const sections = [];
 
-            if (!templateOK && mayMutateLabelsOrState) {
-              sections.push([
-                "Hi! It looks like this issue wasn’t filed using our **Bug report form**.",
-                "",
-                "Please use the template so we get the required details:",
-                "[Click here to start a new bug report using the required template.](<https://github.com/NanashiTheNameless/Zorin-OS-Pro/issues/new?template=bug_report.yml>)",
-                "",
-                "**If what you wanted to open an issue for something other than a bug report please see [this announcement](<https://github.com/NanashiTheNameless/Zorin-OS-Pro/discussions/29>) for more information.**",
-                "",
-                "_This issue is being closed automatically. Feel free to re-open with the correct form._"
-              ]);
+            if ((!templateOK || missingTitle) && mayMutateLabelsOrState) {
+              if (missingTitle) {
+                sections.push([
+                  "Hi! It looks like this issue was opened without a title.",
+                  "",
+                  "Please edit the issue and add a short, descriptive title so maintainers can find and triage it.",
+                  "",
+                  "_This issue will stay closed until it has a proper title._"
+                ]);
+              }
+              if (!templateOK) {
+                sections.push([
+                  "Hi! It looks like this issue wasn’t filed using our **Bug report form**.",
+                  "",
+                  "Please use the template so we get the required details:",
+                  "[Click here to start a new bug report using the required template.](<https://github.com/NanashiTheNameless/Zorin-OS-Pro/issues/new?template=bug_report.yml>)",
+                  "",
+                  "**If what you wanted to open an issue for something other than a bug report please see [this announcement](<https://github.com/NanashiTheNameless/Zorin-OS-Pro/discussions/29>) for more information.**",
+                  "",
+                  "_This issue is being closed automatically. Feel free to re-open with the correct form._"
+                ]);
+              }
             } else {
               if (versionLower === "beta release") {
                 sections.push([

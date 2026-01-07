@@ -2,45 +2,29 @@
 
 set -euo pipefail
 
-# Make sure the temp directory gets removed on script exit.
-trap 'exit 1' HUP INT PIPE QUIT TERM
-trap '
-    if [ -n "$WORKDIR" ]; then
-        case "$WORKDIR" in
-            /tmp/*)
-                if command rm -rf "$WORKDIR"; then
-                    echo "Cleaned up temporary directory \"$WORKDIR\" successfully!"
-                else
-                    echo "Temp Directory \"$WORKDIR\" was not deleted correctly; you need to manually remove it!"
-                fi
-            ;;
-            *)
-                echo "Warning: WORKDIR=\"$WORKDIR\" is outside /tmp/, refusing to delete for safety."
-            ;;
-        esac
-    fi
-' EXIT
-
 # Minimal script to build a dummy package that satisfies a dependency
 # without installing files.
 # Requires: equivs (equivs-build)
 
 usage() {
-    echo "Usage: $0 -n package_name -v version -o output_path" >&2
+    echo "Usage: $0 -n package_name -v version -o output_path [-w work_dir]" >&2
     echo "  -n  Package name to provide (required)" >&2
     echo "  -v  Version number (required)" >&2
     echo "  -o  Output path for .deb - can be a directory or full file path (required)" >&2
+    echo "  -w  Working directory for build (optional, defaults to mktemp)" >&2
 }
 
 PKG_NAME=""
 PKG_VERSION=""
 OUT_PATH=""
+WORK_DIR=""
 
-while getopts ":n:v:o:h" opt; do
+while getopts ":n:v:o:w:h" opt; do
     case "$opt" in
         n) PKG_NAME="$OPTARG" ;;
         v) PKG_VERSION="$OPTARG" ;;
         o) OUT_PATH="$OPTARG" ;;
+        w) WORK_DIR="$OPTARG" ;;
         h) usage; exit 0 ;;
         :) echo "Option -$OPTARG requires an argument" >&2; usage; exit 2 ;;
         \?) echo "Invalid option: -$OPTARG" >&2; usage; exit 2 ;;
@@ -80,13 +64,24 @@ fi
 
 mkdir -p "$OUT_DIR"
 
-WORKDIR="$(mktemp -d)"
-CONTROL="$WORKDIR/control"
-ARCH="all"
-MAINTAINER="Dummy <dummy@dummy.invalid>"
-DESCRIPTION="Dummy package to satisfy dependency for $PKG_NAME."
+# Use provided work directory or create temporary one
+if [[ -z "$WORK_DIR" ]]; then
+    WORKDIR="$(mktemp -d)"
+    CLEANUP_WORKDIR=true
+else
+    WORKDIR="$WORK_DIR"
+    CLEANUP_WORKDIR=false
+    mkdir -p "$WORKDIR"
+fi
 
-cat > "$CONTROL" <<EOF
+# Build in the working directory
+{
+    CONTROL="$WORKDIR/control"
+    ARCH="all"
+    MAINTAINER="Dummy <dummy@dummy.invalid>"
+    DESCRIPTION="Dummy package to satisfy dependency for $PKG_NAME."
+
+    cat > "$CONTROL" <<EOF
 Section: misc
 Priority: optional
 Standards-Version: 3.9.2
@@ -101,12 +96,30 @@ Description: $DESCRIPTION
  to satisfy dependencies on $PKG_NAME.
 EOF
 
-# Build the .deb
-( cd "$WORKDIR" && equivs-build control )
+    # Build the .deb
+    if ! ( cd "$WORKDIR" && equivs-build control ); then
+        [[ "$CLEANUP_WORKDIR" == true ]] && rm -rf "$WORKDIR"
+        echo "Error: equivs-build failed, no package created." >&2
+        exit 1
+    fi
 
-# Move result to requested output directory
-DEB_FILE=$(find "$WORKDIR" -maxdepth 1 -name "*.deb" -print -quit)
-mv "$DEB_FILE" "$OUT_DIR/$OUT_FILE"
+    # Move result to requested output directory
+    mapfile -t DEB_FILES < <(find "$WORKDIR" -maxdepth 1 -type f -name "*.deb" | sort)
+    if [[ ${#DEB_FILES[@]} -eq 0 ]]; then
+        [[ "$CLEANUP_WORKDIR" == true ]] && rm -rf "$WORKDIR"
+        echo "Error: No .deb file produced in $WORKDIR." >&2
+        exit 1
+    fi
+    if [[ ${#DEB_FILES[@]} -gt 1 ]]; then
+        echo "Warning: Multiple .deb files found; using ${DEB_FILES[0]}." >&2
+    fi
+    mv "${DEB_FILES[0]}" "$OUT_DIR/$OUT_FILE"
+
+    # Clean up temporary directory only if we created it
+    if [[ "$CLEANUP_WORKDIR" == true ]]; then
+        rm -rf "$WORKDIR"
+    fi
+}
 
 echo "Built dummy package: $OUT_DIR/$OUT_FILE"
 echo "Install with: sudo apt install $OUT_DIR/$OUT_FILE"

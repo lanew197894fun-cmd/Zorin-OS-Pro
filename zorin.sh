@@ -33,7 +33,7 @@ echo "  ███╔╝ ██║   ██║██████╔╝██║�
 echo " ███╔╝  ██║   ██║██╔══██╗██║██║╚██╗██║    ██║   ██║╚════██║    ██╔═══╝ ██╔══██╗██║   ██║"
 echo "███████╗╚██████╔╝██║  ██║██║██║ ╚████║    ╚██████╔╝███████║    ██║     ██║  ██║╚██████╔╝"
 echo "╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝     ╚═════╝ ╚══════╝    ╚═╝     ╚═╝  ╚═╝ ╚═════╝ "
-echo "|ZORIN-OS-PRO| |Script v10.0.0.3| |Overhauled & Maintained By NamelessNanasi/NanashiTheNameless| |original idea by kauancvlcnt|"
+echo "|ZORIN-OS-PRO| |Script v10.0.1.0| |Overhauled & Maintained By NamelessNanasi/NanashiTheNameless| |original idea by kauancvlcnt|"
 echo ""
 echo "(Please note this tool ONLY works on ZorinOS 18 Core, ZorinOS 17 Core, and ZorinOS 16 Core)"
 echo ""
@@ -64,6 +64,7 @@ function fail() {
 # Parse command line arguments for flag
 no_confirm=""
 extra="false"
+auto_version="false"
 while getopts "678XU" opt; do
     case $opt in
         6) version="16" ;;
@@ -107,7 +108,7 @@ if ! sudo apt-get update; then
     echo "Non-Blocking Error: Failed to update apt repositories."
     # This should be non-blocking
 fi
-if ! sudo apt-get install ${no_confirm} ca-certificates curl; then
+if ! sudo apt-get install ${no_confirm} ca-certificates curl equivs; then
     echo "Non-Blocking Error: Failed to install dependencies."
     # This should be non-blocking
 fi
@@ -225,6 +226,29 @@ echo ""
 echo "Adding Zorin's Package public gpg keys..."
 echo ""
 
+# Helper function to retry apt-get update with backoff
+function apt_update_with_retry() {
+    local max_attempts=3
+    local attempt=1
+    local delay=5
+
+    while [ $attempt -le $max_attempts ]; do
+        echo "Attempting apt-get update (attempt $attempt/$max_attempts)..."
+        if sudo apt-get update ${no_confirm}; then
+            return 0
+        else
+            if [ $attempt -lt $max_attempts ]; then
+                echo "apt-get update failed, waiting ${delay}s before retry..."
+                sleep $delay
+                delay=$((delay * 2))
+            fi
+            attempt=$((attempt + 1))
+        fi
+    done
+    echo "Warning: apt-get update failed after $max_attempts attempts. Continuing anyway..."
+    return 1
+}
+
 # Manually add the public gpg keys
 if ! curl -L -H 'DNT: 1' -H 'Sec-GPC: 1' https://github.com/NanashiTheNameless/Zorin-OS-Pro/raw/refs/heads/main/raw/zorin-os.gpg --output "$TEMPD/zorin-os.gpg"; then
     echo "Error: Failed to download Zorin OS public gpg key."
@@ -282,6 +306,13 @@ else
     sudo chown root:root /etc/apt/trusted.gpg.d/zorin-os-premium.gpg
 fi
 
+# Refresh apt cache to recognize the new keys
+echo ""
+echo "Refreshing apt cache with new GPG keys..."
+if ! apt_update_with_retry; then
+    echo "Warning: Failed to refresh apt cache after adding keys. Continuing anyway..."
+fi
+
 echo ""
 echo "Done adding ZorinOS's Public gpg keys..."
 echo ""
@@ -296,9 +327,13 @@ if dpkg -s "zorin-os-premium-keyring" >/dev/null 2>&1; then
     echo ""
 else
     if [ "$version" = "18" ]; then
-        bash <(curl -H 'DNT: 1' -H 'Sec-GPC: 1' -fsSL https://github.com/NanashiTheNameless/Zorin-OS-Pro/raw/refs/heads/main/make_dummy_deb.sh) -n zorin-os-premium-keyring -v 1.1 -o "$TEMPD/zorin-os-premium-keyring.deb"
+        if ! bash <(curl -H 'DNT: 1' -H 'Sec-GPC: 1' -fsSL https://github.com/NanashiTheNameless/Zorin-OS-Pro/raw/refs/heads/main/make_dummy_deb.sh) -w "$TEMPD/Dummy/" -n zorin-os-premium-keyring -v 1.1 -o "$TEMPD/zorin-os-premium-keyring.deb"; then
+            echo "Warning: Failed to create dummy deb for zorin-os-premium-keyring (1.1). Continuing anyway..."
+        fi
     else
-        bash <(curl -H 'DNT: 1' -H 'Sec-GPC: 1' -fsSL https://github.com/NanashiTheNameless/Zorin-OS-Pro/raw/refs/heads/main/make_dummy_deb.sh) -n zorin-os-premium-keyring -v 1.0 -o "$TEMPD/zorin-os-premium-keyring.deb"
+        if ! bash <(curl -H 'DNT: 1' -H 'Sec-GPC: 1' -fsSL https://github.com/NanashiTheNameless/Zorin-OS-Pro/raw/refs/heads/main/make_dummy_deb.sh) -w "$TEMPD/Dummy/" -n zorin-os-premium-keyring -v 1.0 -o "$TEMPD/zorin-os-premium-keyring.deb"; then
+            echo "Warning: Failed to create dummy deb for zorin-os-premium-keyring (1.0). Continuing anyway..."
+        fi
     fi
 fi
 
@@ -307,11 +342,13 @@ if dpkg -s "zorin-os-keyring" >/dev/null 2>&1; then
     echo "zorin-os-keyring is already installed, skipping dummy deb creation/installation."
     echo ""
 else
-    bash <(curl -H 'DNT: 1' -H 'Sec-GPC: 1' -fsSL https://github.com/NanashiTheNameless/Zorin-OS-Pro/raw/refs/heads/main/make_dummy_deb.sh) -n zorin-os-keyring -v 1.1 -o "$TEMPD/zorin-os-keyring.deb"
+    if ! bash <(curl -H 'DNT: 1' -H 'Sec-GPC: 1' -fsSL https://github.com/NanashiTheNameless/Zorin-OS-Pro/raw/refs/heads/main/make_dummy_deb.sh) -w "$TEMPD/Dummy/" -n zorin-os-keyring -v 1.1 -o "$TEMPD/zorin-os-keyring.deb"; then
+        echo "Warning: Failed to create dummy deb for zorin-os-keyring. Continuing anyway..."
+    fi
 fi
 
 # Fix permissions of dummy debs if they exist
-# 555 = rwxr-xr-x
+# 755 = rwxr-xr-x
 # See: https://chmod-calculator.com/
 if [ -e "$TEMPD/zorin-os-premium-keyring.deb" ]; then
     sudo chmod 755 "$TEMPD/zorin-os-premium-keyring.deb"
@@ -322,10 +359,14 @@ fi
 
 # Install dummy debs if they exist
 if [ -e "$TEMPD/zorin-os-premium-keyring.deb" ]; then
-    sudo apt-get install "$TEMPD/zorin-os-premium-keyring.deb"
+    if ! sudo dpkg -i "$TEMPD/zorin-os-premium-keyring.deb"; then
+        echo "Warning: Failed to install dummy zorin-os-premium-keyring package."
+    fi
 fi
 if [ -e "$TEMPD/zorin-os-keyring.deb" ]; then
-    sudo apt-get install "$TEMPD/zorin-os-keyring.deb"
+    if ! sudo dpkg -i "$TEMPD/zorin-os-keyring.deb"; then
+        echo "Warning: Failed to install dummy zorin-os-keyring package."
+    fi
 fi
 
 echo ""
@@ -355,10 +396,14 @@ echo ""
 echo "Adding premium content from the official apt repo..."
 echo ""
 
-# Update packages
-if ! sudo apt-get update; then
+# Update packages with retry logic
+if ! apt_update_with_retry; then
     echo "Error: Failed to update apt repositories after adding sources."
-    # This should be non-blocking
+    echo "Waiting 10 seconds and trying once more..."
+    sleep 10
+    if ! apt_update_with_retry; then
+        echo "Warning: apt-get update failed. Some packages may not be available."
+    fi
 fi
 
 if [ "$version" = "16" ]; then
@@ -429,16 +474,29 @@ echo ""
 echo "Removing you from the ZorinOS Census system (if enrolled)..."
 echo ""
 
-if ! sudo apt purge ${no_confirm} zorin-os-census ; then
-    echo "Non-Blocking Error: APT failed to uninstall zorin-os-census"
-    echo "(This is not an issue, You may not have been enrolled in the census system in the first place)"
-    # This should be non-blocking
+if dpkg -s zorin-os-census >/dev/null 2>&1; then
+    if ! sudo apt purge -y zorin-os-census; then
+        echo "Non-Blocking Error: APT failed to uninstall zorin-os-census"
+
+    fi
+else
+    echo "zorin-os-census is not installed; skipping removal."
 fi
 
-if ! sudo rm -f /root/etc/cron.daily/zorin-os-census /root/etc/cron.hourly/zorin-os-census ; then
-    echo "Non-Blocking Error: Failed to delete ZorinOS Census cron tasks \"/root/etc/cron.daily/zorin-os-census\" and \"/root/etc/cron.hourly/zorin-os-census\""
-    echo "(This is not an issue, You may not have been enrolled in the census system in the first place)"
-    # This should be non-blocking
+if [ -e "/etc/cron.daily/zorin-os-census" ]; then
+    if ! sudo rm -f "/etc/cron.daily/zorin-os-census"; then
+        echo "Non-Blocking Error: Failed to delete ZorinOS Census cron task \"/etc/cron.daily/zorin-os-census\""
+    fi
+else
+    echo "ZorinOS Census daily cron task not found; skipping removal."
+fi
+
+if [ -e "/etc/cron.hourly/zorin-os-census" ]; then
+    if ! sudo rm -f "/etc/cron.hourly/zorin-os-census"; then
+        echo "Non-Blocking Error: Failed to delete ZorinOS Census cron task \"/etc/cron.hourly/zorin-os-census\""
+    fi
+else
+    echo "ZorinOS Census hourly cron task not found; skipping removal."
 fi
 
 echo ""
